@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package orchestrator.v1;
+
+// TaskSpec defines the specification of a task to be executed
+message TaskSpec {
+    string name = 1;
+    string description = 2;
+    bytes payload = 3;  // Opaque binary-safe payload
+    int32 timeout_secs = 4;
+    int32 max_retries = 5;
+}
+
+// TaskAccepted is returned when a task is successfully accepted
+message TaskAccepted {
+    string task_id = 1;  // Generated task ID
+    int64 timestamp = 2;
+}
+
+// TaskProgress represents the state of an executing task
+message TaskProgress {
+    string task_id = 1;
+    TaskStatus status = 2;
+    int32 progress_percent = 3;
+    string message = 4;  // Human-readable progress message
+    int64 timestamp = 5;
+}
+
+// TaskResult is the final result of task execution
+message TaskResult {
+    string task_id = 1;
+    TaskStatus status = 2;
+    bytes output = 3;     // Opaque result payload
+    string error_message = 4;
+    int64 timestamp = 5;
+}
+
+// WorkerHeartbeat is sent by workers to the scheduler
+message WorkerHeartbeat {
+    string worker_id = 1;
+    string worker_address = 2;  // host:port where worker listens
+    int32 available_slots = 3;  // Number of task slots available
+    int64 timestamp = 4;
+}
+
+// TaskAssignment assigns a task to a worker
+message TaskAssignment {
+    string task_id = 1;
+    TaskSpec spec = 2;
+}
+
+// WorkerResponse is used in bidirectional streaming
+message WorkerResponse {
+    oneof message {
+        WorkerHeartbeat heartbeat = 1;
+        TaskProgress progress = 2;
+        TaskResult result = 3;
+    }
+}
+
+enum TaskStatus {
+    TASK_STATUS_UNSPECIFIED = 0;
+    TASK_STATUS_PENDING = 1;
+    TASK_STATUS_RUNNING = 2;
+    TASK_STATUS_COMPLETED = 3;
+    TASK_STATUS_FAILED = 4;
+    TASK_STATUS_CANCELLED = 5;
+}
+
+// HealthCheckRequest for service health checks
+message HealthCheckRequest {}
+
+// HealthCheckResponse for service health checks
+message HealthCheckResponse {
+    bool healthy = 1;
+    string version = 2;
+}
+
+// Gateway Service - Client-facing API
+service Gateway {
+    // Submit a new task (unary)
+    rpc SubmitTask(TaskSpec) returns (TaskAccepted);
+    
+    // Subscribe to task progress updates (server streaming)
+    rpc SubscribeProgress(ProgressRequest) returns (stream TaskProgress);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message ProgressRequest {
+    string task_id = 1;
+}
+
+// Scheduler Service - Internal service for task scheduling
+service Scheduler {
+    // Register a worker (bidirectional streaming)
+    rpc RegisterWorker(stream WorkerResponse) returns (stream TaskAssignment);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Worker Service - For inter-service communication (if needed)
+service Worker {
+    // Execute a task (server streaming for progress)
+    rpc ExecuteTask(TaskSpec) returns (stream TaskProgress);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
